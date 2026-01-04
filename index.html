@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f172a">
+    
+    <title>AI 名片實驗室 (V16.8 - Cloud Native)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* [Theme] 明亮工程系 (Scientific Light) */
+        body { 
+            background-color: #f8fafc; 
+            background-image: linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
+            background-size: 20px 20px; 
+            color: #334155; 
+            font-family: 'Segoe UI', 'Roboto', monospace;
+            -webkit-user-select: none; user-select: none;
+            -webkit-tap-highlight-color: transparent; 
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        
+        input, textarea { -webkit-user-select: text; user-select: text; }
+
+        .page { display: none; padding-bottom: 90px; animation: fadeIn 0.2s ease-out; }
+        .page.active { display: block; }
+        
+        .glass {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            border: 1px solid #cbd5e1; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        .next-action {
+            border: 2px solid #f97316 !important; 
+            box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.1) !important;
+            position: relative;
+        }
+        
+        .logo-box {
+            width: 48px; height: 48px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 6px; font-weight: 700; font-size: 18px;
+            color: white;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            background: #3b82f6; 
+        }
+
+        .spinner {
+            border: 3px solid #e2e8f0;
+            border-left-color: #3b82f6;
+            border-radius: 50%; width: 24px; height: 24px;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .input-field {
+            width: 100%; background: #ffffff; padding: 8px 12px; 
+            border-radius: 4px; border: 1px solid #cbd5e1; color: #1e293b;
+            font-family: monospace; font-size: 13px;
+            transition: all 0.2s;
+        }
+        .input-field:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1); outline: none; }
+        .label-text { font-size: 11px; font-weight: 600; color: #64748b; margin-bottom: 4px; display: block; text-transform: uppercase; }
+        
+        #toast {
+            visibility: hidden; min-width: 250px; background-color: #333; color: #fff; text-align: center; border-radius: 8px; padding: 16px; position: fixed; z-index: 100; left: 50%; bottom: 100px; transform: translateX(-50%); font-size: 14px; opacity: 0; transition: opacity 0.3s;
+        }
+        #toast.show { visibility: visible; opacity: 1; }
+
+        /* 相機替代方案 */
+        .camera-fallback-btn {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            width: 100%; height: 100%; background: #f1f5f9; border: 2px dashed #cbd5e1; border-radius: 12px;
+            color: #64748b; cursor: pointer; transition: all 0.2s;
+        }
+        .camera-fallback-btn:active { background: #e2e8f0; border-color: #94a3b8; }
+    </style>
+</head>
+<body>
+
+    <div id="toast">Notification</div>
+
+    <!-- 設定 -->
+    <div id="modal-settings" class="fixed inset-0 z-50 bg-slate-800/80 flex items-center justify-center p-6 hidden">
+        <div class="glass w-full max-w-sm p-6 border-t-4 border-blue-500 shadow-2xl">
+            <h2 class="text-xl font-bold text-slate-800 mb-1 font-mono">SYSTEM INIT</h2>
+            <p class="text-xs text-slate-500 mb-6">設定 V15 核心參數</p>
+            <label class="label-text">Gemini API Key</label>
+            <input id="key-ai" type="password" class="input-field mb-4 font-mono">
+            <label class="label-text">Google Apps Script URL</label>
+            <input id="key-gas" type="text" class="input-field mb-6 font-mono">
+            <button onclick="saveKeys()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded font-bold transition-colors next-action">確認啟動</button>
+        </div>
+    </div>
+
+    <!-- 刪除確認 -->
+    <div id="modal-confirm-delete" class="fixed inset-0 z-[60] bg-slate-900/80 flex items-center justify-center p-6 hidden">
+        <div class="glass w-full max-w-sm p-6 border-t-4 border-red-500 shadow-2xl animate-[fadeIn_0.2s_ease-out]">
+            <h2 class="text-xl font-bold text-slate-800 mb-2 font-mono text-red-600">⚠ WARNING</h2>
+            <p class="text-sm text-slate-600 mb-6">確定要永久移除此資產嗎？此動作將同步清除本地與雲端資料。</p>
+            <div class="flex gap-3">
+                <button onclick="document.getElementById('modal-confirm-delete').classList.add('hidden')" class="flex-1 py-3 bg-slate-200 hover:bg-slate-300 rounded font-bold text-slate-600">取消</button>
+                <button onclick="executeDelete()" class="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded font-bold shadow-lg">確認刪除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 導航 -->
+    <nav class="fixed bottom-0 w-full glass flex justify-around p-2 z-40 border-t border-slate-200 pb-6 shadow-lg bg-white/90">
+        <button onclick="go('home')" class="flex flex-col items-center w-16 py-1 text-slate-400 hover:text-blue-600">
+            <i class="fa-solid fa-chart-pie text-lg mb-1"></i> <span class="text-[10px] font-bold">總覽</span>
+        </button>
+        <button onclick="showAddMenu()" class="flex flex-col items-center justify-center w-14 h-14 bg-blue-600 rounded-full text-white -mt-8 shadow-lg shadow-blue-500/30 border-4 border-[#f8fafc] active:scale-95 transition-transform next-action">
+            <i class="fa-solid fa-plus text-xl"></i>
+        </button>
+        <button onclick="go('list')" class="flex flex-col items-center w-16 py-1 text-slate-400 hover:text-blue-600">
+            <i class="fa-solid fa-list-ul text-lg mb-1"></i> <span class="text-[10px] font-bold">清單</span>
+        </button>
+        <button onclick="go('wall')" class="flex flex-col items-center w-16 py-1 text-slate-400 hover:text-blue-600">
+            <i class="fa-solid fa-layer-group text-lg mb-1"></i> <span class="text-[10px] font-bold">Logo牆</span>
+        </button>
+    </nav>
+
+    <!-- 新增選單 -->
+    <div id="action-sheet-add" class="fixed inset-0 z-50 bg-black/50 hidden flex flex-col justify-end" onclick="this.classList.add('hidden')">
+        <div class="bg-white rounded-t-2xl p-4" onclick="event.stopPropagation()">
+            <div class="text-center text-slate-400 text-xs font-bold mb-4">-- SELECT INPUT METHOD --</div>
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="goScan()" class="p-4 bg-blue-50 rounded-xl flex flex-col items-center gap-2 hover:bg-blue-100 border border-blue-200">
+                    <div class="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center"><i class="fa-solid fa-camera"></i></div>
+                    <span class="text-sm font-bold text-slate-700">拍照識別</span>
+                </button>
+                <button onclick="goManual()" class="p-4 bg-green-50 rounded-xl flex flex-col items-center gap-2 hover:bg-green-100 border border-green-200">
+                    <div class="w-10 h-10 rounded-full bg-green-500 text-white flex items-center justify-center"><i class="fa-solid fa-keyboard"></i></div>
+                    <span class="text-sm font-bold text-slate-700">手動輸入</span>
+                </button>
+            </div>
+            <button onclick="document.getElementById('action-sheet-add').classList.add('hidden')" class="w-full mt-4 py-3 text-slate-500 font-bold border-t border-slate-100">CANCEL</button>
+        </div>
+    </div>
+
+    <div class="container mx-auto px-4 pt-6 max-w-lg">
+
+        <!-- 首頁 -->
+        <div id="page-home" class="page active">
+            <header class="flex justify-between items-end mb-8">
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-800 tracking-tight">DASHBOARD</h1>
+                    <p class="text-xs text-blue-600 font-mono">V16.8 CLOUD NATIVE</p>
+                </div>
+                <div onclick="document.getElementById('modal-settings').classList.remove('hidden')" class="w-8 h-8 rounded bg-slate-200 flex items-center justify-center cursor-pointer">
+                    <i class="fa-solid fa-gear text-xs text-slate-600"></i>
+                </div>
+            </header>
+
+            <div class="glass p-5 mb-6 border-l-4 border-blue-500">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Local Assets</p>
+                        <h2 id="stat-total" class="text-3xl font-bold text-slate-800 mt-1 font-mono">0</h2>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Cloud Queue</p>
+                        <h2 id="stat-unsync" class="text-xl font-bold text-orange-500 mt-1 font-mono">Ready</h2>
+                    </div>
+                </div>
+                <div class="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                    <div id="stat-bar" class="h-full bg-blue-500 w-0 transition-all duration-1000"></div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="goManual()" class="glass p-4 text-left hover:border-blue-400 transition-all group next-action">
+                    <div class="w-10 h-10 rounded bg-blue-100 text-blue-600 flex items-center justify-center mb-3">
+                        <i class="fa-solid fa-pen-nib"></i>
+                    </div>
+                    <h3 class="font-bold text-sm text-slate-700">手動建檔</h3>
+                    <p class="text-[10px] text-slate-500 font-mono">Manual Entry</p>
+                </button>
+                <button onclick="downloadData()" class="glass p-4 text-left hover:border-purple-400 transition-all group">
+                    <div id="btn-download-icon" class="w-10 h-10 rounded bg-purple-100 text-purple-600 flex items-center justify-center mb-3">
+                        <i class="fa-solid fa-cloud-arrow-down"></i>
+                    </div>
+                    <h3 class="font-bold text-sm text-slate-700">雲端下載</h3>
+                    <p class="text-[10px] text-slate-500 font-mono">Pull & Sync</p>
+                </button>
+            </div>
+            
+            <button onclick="uploadAll()" class="w-full mt-6 glass p-3 text-center text-xs font-bold text-slate-600 hover:text-blue-600 hover:border-blue-400 font-mono transition-colors">
+                <i class="fa-solid fa-upload mr-2"></i> 執行上傳交割 (BATCH PUSH)
+            </button>
+        </div>
+
+        <!-- 掃描頁 (V16.8 WebRTC Fix) -->
+        <div id="page-scan" class="page">
+            <div class="flex items-center justify-between mb-4">
+                <button onclick="go('home')" class="text-slate-500 hover:text-blue-600"><i class="fa-solid fa-arrow-left"></i> 返回</button>
+                <h2 id="editor-title" class="font-bold text-lg text-slate-800 font-mono">INPUT SOURCE</h2>
+                <div class="w-10"></div>
+            </div>
+
+            <!-- 視訊串流區塊 (Webcam) -->
+            <div id="step-camera" class="relative rounded-xl overflow-hidden shadow-md border border-slate-300 aspect-[3/4] bg-slate-100 mb-6 hidden">
+                <video id="video" autoplay playsinline muted class="w-full h-full object-cover opacity-90"></video>
+                <canvas id="canvas" class="hidden"></canvas>
+                
+                <!-- WebRTC Fallback UI -->
+                <div id="camera-fallback-ui" class="absolute inset-0 z-20 hidden p-6">
+                    <label class="camera-fallback-btn">
+                        <i class="fa-solid fa-camera text-4xl mb-2 text-blue-500"></i>
+                        <h3 class="font-bold text-slate-700">無法存取相機</h3>
+                        <p class="text-xs text-slate-400 mt-1 text-center">請確認已使用 HTTPS<br>或點擊此處上傳圖片</p>
+                        <input type="file" accept="image/*" class="hidden" onchange="loadFile(this)">
+                    </label>
+                </div>
+
+                <div class="absolute bottom-6 w-full flex justify-center gap-6 px-6 pointer-events-auto items-center z-10" id="video-controls">
+                    <label class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-white cursor-pointer shadow-lg active:scale-95 transition-transform">
+                        <i class="fa-solid fa-image text-sm"></i>
+                        <!-- 這是選相簿的 -->
+                        <input type="file" accept="image/*" class="hidden" onchange="loadFile(this)">
+                    </label>
+                    <button onclick="takePhoto()" id="btn-snap" class="w-16 h-16 rounded-full bg-white border-4 border-slate-200 flex items-center justify-center active:scale-95 transition-transform shadow-lg">
+                        <div class="w-12 h-12 rounded-full bg-slate-100 border border-slate-300"></div>
+                    </button>
+                    <div class="w-12"></div>
+                </div>
+            </div>
+
+            <div id="step-loading" class="hidden flex-col items-center justify-center py-20 text-center">
+                <div class="spinner mb-4 border-slate-300 border-l-blue-600"></div>
+                <h3 class="text-sm font-bold text-slate-700 font-mono">PROCESSING...</h3>
+            </div>
+
+            <div id="step-edit" class="hidden pb-20">
+                <input type="hidden" id="edit-id" value="">
+                <div class="glass p-4 mb-4 border-l-4 border-blue-500">
+                    <label class="label-text text-blue-600">識別主體 (Logo Key)</label>
+                    <input id="edit-logo" class="input-field text-lg font-bold mb-2 bg-blue-50/50 border-blue-200" placeholder="e.g. TSMC">
+                    <label class="label-text">公司全銜</label>
+                    <input id="edit-company" class="input-field text-slate-600" placeholder="Full Company Name">
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex gap-2">
+                        <div class="flex-1">
+                            <label class="label-text">姓名</label>
+                            <input id="edit-name" class="input-field">
+                        </div>
+                        <div class="flex-1">
+                            <label class="label-text">職稱</label>
+                            <input id="edit-title" class="input-field">
+                        </div>
+                    </div>
+                    <div class="p-3 rounded bg-white border border-slate-200 shadow-sm">
+                        <label class="label-text mb-2 block"><i class="fa-solid fa-signal mr-1"></i> 通訊渠道</label>
+                        <div class="grid gap-2">
+                            <input id="edit-mobile" class="input-field" placeholder="手機">
+                            <div class="flex gap-2">
+                                <input id="edit-phone1" class="input-field" placeholder="電話 1 (主)">
+                                <input id="edit-phone2" class="input-field" placeholder="電話 2 (副)">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p-3 rounded bg-white border border-slate-200 shadow-sm">
+                        <label class="label-text mb-2 block"><i class="fa-solid fa-map-pin mr-1"></i> 據點資訊</label>
+                        <input id="edit-address1" class="input-field mb-2" placeholder="地址 1">
+                        <input id="edit-address2" class="input-field" placeholder="地址 2">
+                    </div>
+                    <div>
+                        <label class="label-text">電子郵件</label>
+                        <input id="edit-email" class="input-field">
+                    </div>
+                    <div>
+                        <label class="label-text">備註</label>
+                        <textarea id="edit-note" rows="3" class="input-field text-xs font-mono text-slate-500"></textarea>
+                    </div>
+                </div>
+
+                <button onclick="saveCard()" class="w-full mt-6 bg-green-600 hover:bg-green-700 text-white py-3 rounded font-bold shadow-lg flex items-center justify-center gap-2 font-mono next-action">
+                    <i class="fa-solid fa-floppy-disk"></i> COMMIT TO LOCAL
+                </button>
+            </div>
+        </div>
+
+        <!-- 清單 -->
+        <div id="page-list" class="page">
+            <div class="sticky top-0 bg-[#f8fafc] z-10 pb-4 pt-2">
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
+                    <input id="search-bar" oninput="renderList()" placeholder="Query Database..." class="w-full bg-white pl-9 pr-4 py-2.5 rounded border border-slate-300 text-xs font-mono focus:border-blue-500 outline-none shadow-sm">
+                </div>
+            </div>
+            <div id="card-list-container" class="space-y-3"></div>
+        </div>
+
+        <!-- Logo牆 -->
+        <div id="page-wall" class="page">
+            <h2 class="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700 font-mono">
+                <i class="fa-solid fa-border-all text-blue-500"></i> BRAND MATRIX
+            </h2>
+            <div id="logo-grid" class="grid grid-cols-3 gap-3"></div>
+        </div>
+
+    </div>
+
+    <!-- 詳細資料 -->
+    <div id="modal-detail" class="fixed inset-0 z-50 bg-slate-900/90 hidden flex flex-col">
+        <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
+            <h3 id="detail-title" class="font-bold text-lg text-white font-mono">CLUSTER DETAILS</h3>
+            <button onclick="closeDetail()" class="w-8 h-8 rounded-full bg-slate-700 text-white flex items-center justify-center hover:bg-slate-600"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="detail-content" class="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-100"></div>
+        <div class="p-4 border-t border-slate-200 bg-white">
+            <button onclick="exportCurrentGroup()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded font-bold text-sm font-mono">EXPORT CSV</button>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'card_manager_db_core';
+        let db = [];
+        let config = {
+            geminiKey: localStorage.getItem('gemini_key_v15') || '', 
+            gasUrl: localStorage.getItem('gas_url_v15') || ''
+        };
+        let activeGroup = [];
+        let editingId = null; 
+        let pendingDeleteId = null; 
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAndMigrateData(); 
+            const modal = document.getElementById('modal-settings');
+            if(!config.geminiKey && modal) modal.classList.remove('hidden');
+            updateStats();
+            renderList();
+        });
+
+        function loadAndMigrateData() {
+            const coreData = localStorage.getItem(STORAGE_KEY);
+            if (coreData) { db = JSON.parse(coreData); }
+        }
+        function saveToLocal() { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); updateStats(); }
+
+        function go(pageId) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('page-' + pageId).classList.add('active');
+            if (pageId === 'wall') renderLogoWall();
+            if (pageId === 'list') renderList();
+            if (pageId === 'home') updateStats();
+            // Re-check camera when entering scan page
+            if (pageId === 'scan' && !document.getElementById('step-camera').classList.contains('hidden')) {
+                initCamera();
+            }
+        }
+
+        function showAddMenu() { document.getElementById('action-sheet-add').classList.remove('hidden'); }
+
+        function goScan() {
+            document.getElementById('action-sheet-add').classList.add('hidden');
+            document.getElementById('editor-title').innerText = "> AI SCANNER";
+            resetEditor();
+            go('scan');
+            document.getElementById('step-camera').classList.remove('hidden');
+            initCamera();
+        }
+
+        function goManual() {
+            document.getElementById('action-sheet-add').classList.add('hidden');
+            document.getElementById('editor-title').innerText = "> MANUAL INPUT";
+            resetEditor();
+            go('scan');
+            document.getElementById('step-camera').classList.add('hidden');
+            document.getElementById('step-edit').classList.remove('hidden');
+        }
+
+        function goEdit(docId) {
+            const card = db.find(c => String(c.docId) === String(docId));
+            if(!card) return alert('Asset not found in Local DB.');
+            document.getElementById('editor-title').innerText = "> EDIT ASSET";
+            editingId = docId;
+            ['logo','company','name','title','mobile','phone1','phone2','email','address1','address2','note'].forEach(key => {
+                const el = document.getElementById('edit-' + key);
+                if(el) el.value = card[key] || '';
+            });
+            go('scan');
+            document.getElementById('step-camera').classList.add('hidden');
+            document.getElementById('step-edit').classList.remove('hidden');
+        }
+
+        function resetEditor() {
+            editingId = null;
+            document.querySelectorAll('#step-edit input, #step-edit textarea').forEach(i => i.value = '');
+            document.getElementById('step-loading').classList.add('hidden');
+            document.getElementById('step-edit').classList.add('hidden');
+        }
+
+        function saveKeys() {
+            config.geminiKey = document.getElementById('key-ai').value;
+            config.gasUrl = document.getElementById('key-gas').value;
+            localStorage.setItem('gemini_key_v15', config.geminiKey);
+            localStorage.setItem('gas_url_v15', config.gasUrl);
+            document.getElementById('modal-settings').classList.add('hidden');
+            showToast("Keys Updated.");
+        }
+
+        // --- V16.8 Camera Logic Update (Cloud Native) ---
+        async function initCamera() {
+            const video = document.getElementById('video');
+            const fallbackUI = document.getElementById('camera-fallback-ui');
+            const controls = document.getElementById('video-controls');
+            
+            if(fallbackUI) fallbackUI.classList.add('hidden');
+            if(controls) controls.classList.remove('hidden');
+
+            try {
+                // [V16.8 Optim] Relax constraints for better compatibility
+                const constraints = {
+                    video: {
+                        facingMode: { ideal: "environment" },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                if (video) {
+                    video.srcObject = stream;
+                    // [V16.8 Optim] Explicitly play for iOS Safari
+                    video.onloadedmetadata = () => {
+                        video.play().catch(e => console.log("Autoplay blocked:", e));
+                    };
+                }
+            } catch(e) { 
+                console.warn('Camera Failed:', e);
+                if(fallbackUI) fallbackUI.classList.remove('hidden');
+                if(controls) controls.classList.add('hidden');
+            }
+        }
+
+        function takePhoto() {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            processImage(canvas.toDataURL('image/jpeg', 0.8));
+        }
+
+        function loadFile(input) {
+            if (input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = e => processImage(e.target.result);
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function processImage(base64) {
+            document.getElementById('step-camera').classList.add('hidden');
+            document.getElementById('step-loading').classList.remove('hidden');
+            document.getElementById('step-loading').style.display = 'flex';
+
+            try {
+                const cleanBase64 = base64.split(',')[1];
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${config.geminiKey}`;
+                const prompt = `請分析名片，回傳JSON: {"logo":"","company":"","name":"","title":"","mobile":"","phone1":"","phone2":"","email":"","address1":"","address2":"","all_text":""}.`;
+
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: cleanBase64 } }] }],
+                        generationConfig: { response_mime_type: "application/json" }
+                    })
+                });
+
+                const data = await res.json();
+                const result = JSON.parse(data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim());
+
+                ['logo','company','name','title','mobile','phone1','phone2','email','address1','address2'].forEach(key => {
+                    document.getElementById('edit-' + key).value = result[key] || '';
+                });
+                document.getElementById('edit-note').value = result.all_text || '';
+
+                document.getElementById('step-loading').classList.add('hidden');
+                document.getElementById('step-edit').classList.remove('hidden');
+
+            } catch (err) {
+                alert('OCR Error: ' + err.message);
+                goManual();
+            }
+        }
+
+        async function saveCard() {
+            const cardData = {
+                logo: document.getElementById('edit-logo').value,
+                company: document.getElementById('edit-company').value,
+                name: document.getElementById('edit-name').value,
+                title: document.getElementById('edit-title').value,
+                mobile: document.getElementById('edit-mobile').value,
+                phone1: document.getElementById('edit-phone1').value,
+                phone2: document.getElementById('edit-phone2').value,
+                email: document.getElementById('edit-email').value,
+                address1: document.getElementById('edit-address1').value,
+                address2: document.getElementById('edit-address2').value,
+                note: document.getElementById('edit-note').value,
+                date: new Date().toLocaleDateString(),
+                synced: false
+            };
+
+            if (editingId) {
+                const index = db.findIndex(c => String(c.docId) == String(editingId));
+                if (index > -1) {
+                    cardData.docId = String(editingId);
+                    db[index] = cardData;
+                }
+            } else {
+                cardData.docId = String(Date.now());
+                db.unshift(cardData);
+            }
+
+            saveToLocal(); 
+            uploadSingleCard(cardData);
+            showToast('Asset Saved Locally.');
+            resetEditor();
+            go('list');
+        }
+
+        function confirmDelete(docId) {
+            pendingDeleteId = String(docId);
+            document.getElementById('modal-confirm-delete').classList.remove('hidden');
+        }
+
+        async function executeDelete() {
+            if(!pendingDeleteId) return;
+            const idx = db.findIndex(c => String(c.docId) === pendingDeleteId);
+            
+            if (idx > -1) {
+                db.splice(idx, 1);
+                saveToLocal();
+                document.getElementById('modal-confirm-delete').classList.add('hidden');
+                document.getElementById('modal-detail').classList.add('hidden');
+                renderList();
+                renderLogoWall(); 
+                updateStats();
+                showToast('Local Asset Deleted. Cleaning Cloud...');
+                syncDelete(pendingDeleteId);
+            } else {
+                alert('Error: Asset not found. Refreshing...');
+                location.reload();
+            }
+            pendingDeleteId = null;
+        }
+
+        async function syncDelete(docId) {
+            if (!config.gasUrl) return;
+            const btn = document.getElementById('stat-unsync');
+            if(btn) btn.innerText = "DEL...";
+            try {
+                await fetch(config.gasUrl, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ action: 'delete', docId: String(docId) })
+                });
+                showToast('Cloud Sync: Deletion Sent.');
+            } catch(e) { console.error(e); }
+            finally { updateStats(); }
+        }
+
+        async function uploadSingleCard(card) {
+            if (!config.gasUrl) return;
+            try {
+                await fetch(config.gasUrl, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify(card)
+                });
+                card.synced = true;
+                saveToLocal();
+            } catch(e) { console.error('Push Fail', e); }
+        }
+
+        async function uploadAll() {
+            const unsync = db.filter(c => !c.synced);
+            if(unsync.length === 0) return showToast('Queue Empty.');
+            const btn = document.querySelector('button[onclick="uploadAll()"]');
+            btn.innerText = `PUSHING (${unsync.length})...`;
+            for(let card of unsync) { await uploadSingleCard(card); }
+            btn.innerHTML = `<i class="fa-solid fa-upload mr-2"></i> EXECUTE BATCH UPLOAD`;
+            showToast('Batch Complete.');
+        }
+
+        async function downloadData() {
+            if (!config.gasUrl) return showToast('Err: Endpoint Undefined');
+            const btnIcon = document.getElementById('btn-download-icon');
+            btnIcon.innerHTML = `<div class="spinner border-purple-500 border-l-transparent"></div>`;
+            try {
+                const res = await fetch(config.gasUrl + '?action=get');
+                const cloudData = await res.json();
+                let count = 0;
+                const localIds = new Set(db.map(c => String(c.docId)));
+                cloudData.forEach(c => {
+                    if (!localIds.has(String(c.docId))) {
+                        c.synced = true;
+                        c.docId = String(c.docId);
+                        db.push(c);
+                        count++;
+                    }
+                });
+                saveToLocal();
+                showToast(`Pull: ${count} assets added.`);
+                renderList(); 
+            } catch(e) { showToast('Pull Failed: ' + e.message); }
+            finally { btnIcon.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i>`; }
+        }
+
+        function renderList() {
+            const container = document.getElementById('card-list-container');
+            if (!container) return;
+            container.innerHTML = '';
+            const key = document.getElementById('search-bar').value.toLowerCase();
+            const filtered = db.filter(c => 
+                (c.logo + c.company + c.name + c.note).toLowerCase().includes(key)
+            );
+            filtered.forEach((c) => {
+                const el = document.createElement('div');
+                el.className = 'glass p-4 border-l-4 border-slate-300 hover:border-blue-500 transition-colors relative mb-2';
+                el.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <div class="font-bold text-base text-slate-800 font-mono">${c.logo || c.company}</div>
+                            <div class="text-[10px] text-slate-500">${c.company}</div>
+                        </div>
+                        <span class="text-[9px] font-bold px-1.5 py-0.5 rounded border ${c.synced ? 'bg-green-50 text-green-600 border-green-200' : 'bg-orange-50 text-orange-600 border-orange-200'}">
+                            ${c.synced ? 'SYNCED' : 'LOCAL'}
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="font-bold text-slate-700">${c.name}</div>
+                        <div class="text-xs text-slate-400 border-l border-slate-300 pl-2 font-mono">${c.title}</div>
+                    </div>
+                    <div class="mt-3 flex justify-end gap-3 border-t border-slate-100 pt-2">
+                        <button onclick="goEdit(&quot;${c.docId}&quot;)" class="text-blue-500 text-[10px] font-bold uppercase flex items-center gap-1 py-1 px-2 hover:bg-blue-50 rounded">
+                            <i class="fa-solid fa-pen"></i> EDIT
+                        </button>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        function renderLogoWall() {
+            const grid = document.getElementById('logo-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            const groups = {};
+            db.forEach(c => {
+                const key = c.logo || c.company || 'NULL';
+                if(!groups[key]) groups[key] = [];
+                groups[key].push(c);
+            });
+            Object.keys(groups).forEach(key => {
+                const count = groups[key].length;
+                const char = key[0].toUpperCase();
+                const el = document.createElement('div');
+                el.className = 'glass aspect-square flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50 transition-colors active:scale-95 border-b-4 border-blue-200';
+                el.onclick = () => showDetail(key, groups[key]);
+                el.innerHTML = `
+                    <div class="logo-box mb-2 shadow-md">${char}</div>
+                    <div class="text-[10px] font-bold text-center w-full px-1 truncate text-slate-600 font-mono">${key}</div>
+                    <div class="text-[9px] text-slate-400 font-mono">Count: ${count}</div>
+                `;
+                grid.appendChild(el);
+            });
+        }
+
+        function showDetail(title, list) {
+            activeGroup = list;
+            document.getElementById('detail-title').innerText = `CLUSTER: ${title}`;
+            const content = document.getElementById('detail-content');
+            content.innerHTML = '';
+            list.forEach(c => {
+                const el = document.createElement('div');
+                el.className = 'bg-white p-3 rounded border border-slate-200 shadow-sm mb-3 relative';
+                el.innerHTML = `
+                    <button onclick="confirmDelete(&quot;${c.docId}&quot;)" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 transition-colors p-1">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                    <div class="font-bold text-slate-800 text-lg pr-6">${c.name} <span class="text-xs text-blue-500 ml-1 font-mono bg-blue-50 px-1 rounded">${c.title}</span></div>
+                    <div class="text-xs text-slate-500 font-bold mt-1 border-b border-slate-100 pb-1">${c.company}</div>
+                    <div class="mt-2 text-xs grid gap-1.5 text-slate-600 font-mono">
+                        <div class="flex items-center gap-2"><i class="fa-solid fa-mobile-screen w-4 text-center text-slate-400"></i> ${c.mobile}</div>
+                        <div class="flex items-center gap-2"><i class="fa-solid fa-phone w-4 text-center text-slate-400"></i> ${c.phone1} ${c.phone2 ? '/ ' + c.phone2 : ''}</div>
+                        <div class="flex items-center gap-2"><i class="fa-regular fa-envelope w-4 text-center text-slate-400"></i> ${c.email}</div>
+                        <div class="flex items-start gap-2"><i class="fa-solid fa-map-pin w-4 text-center text-slate-400 mt-0.5"></i> <div>${c.address1}${c.address2 ? '<br>' + c.address2 : ''}</div></div>
+                    </div>
+                    ${c.note ? `<div class="mt-2 pt-2 border-t border-slate-100 text-[10px] text-slate-400 italic">${c.note}</div>` : ''}
+                `;
+                content.appendChild(el);
+            });
+            document.getElementById('modal-detail').classList.remove('hidden');
+        }
+
+        function closeDetail() { document.getElementById('modal-detail').classList.add('hidden'); }
+
+        function exportCurrentGroup() {
+            const title = document.getElementById('detail-title').innerText.replace('CLUSTER: ', '');
+            const csvContent = "\uFEFFLogo,Company,Name,Title,Mobile,Phone1,Phone2,Email,Address1,Address2,Note,Date\n" +
+                activeGroup.map(c => 
+                    [c.logo, c.company, c.name, c.title, c.mobile, c.phone1, c.phone2, c.email, c.address1, c.address2, c.note, c.date]
+                    .map(v => `"${(v||'').replace(/"/g, '""')}"`).join(',')
+                ).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `DataSet_${title}.csv`;
+            a.click();
+        }
+
+        function updateStats() {
+            const elTotal = document.getElementById('stat-total');
+            const elUnsync = document.getElementById('stat-unsync');
+            const elBar = document.getElementById('stat-bar');
+            if(!elTotal || !elUnsync || !elBar) return;
+            elTotal.innerText = db.length;
+            const unsyncCount = db.filter(c => !c.synced).length;
+            elUnsync.innerText = unsyncCount;
+            const percent = db.length > 0 ? ((db.length - unsyncCount) / db.length) * 100 : 0;
+            elBar.style.width = `${percent}%`;
+            elBar.className = `h-full transition-all duration-1000 ${percent === 100 ? 'bg-green-500' : 'bg-blue-500'}`;
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.classList.add('show');
+            setTimeout(() => { t.classList.remove('show'); }, 3000);
+        }
+    </script>
+</body>
+</html>
